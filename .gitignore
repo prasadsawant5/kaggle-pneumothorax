@@ -10,3 +10,5 @@ dicom-images-train/*
 dicom-images-test/*
 logs/*
 fcn_10/*
+masks.py
+view_images.py
