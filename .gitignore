@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+*.h5
+*.npy
+*.csv
+*.tfrecord
+*.sh
+*.json
+dicom-images-train/*
+dicom-images-test/*
+logs/*
+fcn_10/*
