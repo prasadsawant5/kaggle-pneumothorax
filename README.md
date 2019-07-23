@@ -27,4 +27,34 @@ Sample code is available for download that may help with encoding and decoding t
 ### Preprocessing
 After downloading the dataset, you need to first preprocess it before feeding it to training. To do so, we are using Python's [h5py](https://www.h5py.org/) library and [pydicom](https://pydicom.github.io/pydicom/stable/getting_started.html) library for processing the DICOM files. 
 
-The DICOM files are read by `pydicom`, converted to a `Numpy` array, resized to 384x384 and then divided by 255. This normalizes the image. The image is resized because the original dimension of the image is 1024x1024 and I tend to run out of memory on my GPU for such a high dimension image while training. Once normalized, the image is added to a H5 dataset. The scripts creates multiple datasets where each dataset holds 512 images. The datasets are labelled as `images_<dataset_number>` and `ann_<dataset_number>`. 
+The DICOM files are read by `pydicom`, converted to a `Numpy` array, resized to 384x384 and then divided by 255. This normalizes the image. The image is resized because the original dimension of the image is 1024x1024 which causes memory overflow on my GPU while training. Once normalized, the image is added to a H5 dataset. The scripts creates multiple datasets where each dataset holds 512 images. The datasets are labelled as `images_<dataset_number>` and `ann_<dataset_number>`. 
+
+To start the preprocessing of images, run,
+```
+python preprocess.py
+```
+
+### Architecture
+Once all images are preprocessed and stored to disk, you are ready to train your model. But before training, let's review the network architecture.
+The network consists of 3 convolution layers, followed by 1x1 convolution layer and 2 transpose convolution layers followed by output layer. A single convolution layers performs the following operations,
+1. Convolution with a convolution stride of 2, padding set to "SAME" and "relu" as the activation function.
+2. If `is_batch_norm` flag is True then it performs batch normalization as well.
+3. If `is_dropout` flag is True then it adds a dropout with the specified probability.
+
+The 1x1 convolution performs the exact same operation but the only difference is that the filter numbers are exactly the same as the convolution layer before 1x1 and the convolution stride is set to 1.
+
+A single transpose convolution performs the following operations,
+1. Transpose convolution with a convolution stride of 2, padding set to "SAME" and "relu" as the activation function.
+2. If `is_batch_norm` flag is True then it performs batch normalization as well.
+3. If `is_dropout` flag is True then it adds a dropout with the specified probability.
+
+The output layer performs only a transpose convolution operation with 1 filter, padding set to "SAME" and "sigmoid" as activation.
+
+![Architecture](images/architecture.png)
+
+### Training
+To train the model, simply run,
+```
+python train.py
+```
+This script will create the network and train it. Once training is completed, it will save the model in `fcn_<epochs>` directory where `<epochs>` is the number of epochs specified in `train.py`. It also creates a `logs` directory which holds all `tensorboard` related files.
