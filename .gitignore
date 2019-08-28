@@ -12,5 +12,6 @@ logs/*
 fcn_10/*
 fcn_100/*
 model/*
+samples/*
 masks.py
 view_images.py

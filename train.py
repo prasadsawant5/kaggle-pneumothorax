@@ -8,6 +8,8 @@ from mask_functions import *
 import pandas as pd
 import sys
 import h5py
+from sklearn.model_selection import train_test_split
+from architectures import unet, fcn
 
 IMG_WIDTH = 384
 IMG_HEIGHT = 384
@@ -15,8 +17,8 @@ IMG_HEIGHT = 384
 TF_RECORD_IMAGES = './images.tfrecord'
 TF_RECORD_MASKS = './masks.tfrecord'
 
-H5_IMAGES = './images_full.h5'
-H5_MASKS = './masks_full.h5'
+H5_IMAGES = './images.h5'
+H5_MASKS = './masks.h5'
 
 TRAIN = './dicom-images-train/'
 
@@ -51,51 +53,10 @@ def neural_net_output():
     return tf.compat.v1.placeholder(tf.float32, (None, IMG_HEIGHT, IMG_WIDTH, 1), name='Y')
 
 def neural_net_keep_prob():
-    return tf.compat.v1.placeholder(tf.float32, None, 'kp')
+    return tf.compat.v1.placeholder(tf.float32, None, 'keep_prob')
 
-def conv2d_bn(x, filters, conv_ksize, keep_prob, scope_name, conv_strides=2, pool_ksize=2, pool_strides=2, padding='same', activation='relu', is_batch_norm=True, is_training=True, is_dropout=False):
-    k_init = tf.random_normal_initializer()
-
-    with tf.name_scope(scope_name):
-        conv = tf.layers.conv2d(x, filters=filters, kernel_size=conv_ksize, strides=conv_strides, padding=padding, activation=activation, kernel_initializer=k_init)
-
-        if is_batch_norm:
-            conv = tf.layers.batch_normalization(conv, training=is_training)
-
-        if is_dropout:
-            conv = tf.nn.dropout(conv, keep_prob=keep_prob)
-
-        return conv
-
-def conv_2d_transpose_bn(x, filters, ksize, keep_prob, scope_name, strides=2, padding='same', activation='relu', is_batch_norm=True, is_training=True, is_dropout=False):
-    k_init = tf.random_normal_initializer()
-
-    with tf.name_scope(scope_name):
-        conv_transpose = tf.layers.conv2d_transpose(x, filters=filters, kernel_size=ksize, strides=strides, padding=padding, activation=activation, kernel_initializer=k_init)
-
-        if is_batch_norm:
-            conv_transpose = tf.layers.batch_normalization(conv_transpose, training=is_training)
-
-        if is_dropout:
-            conv_transpose = tf.nn.dropout(conv_transpose, keep_prob)
-
-        return conv_transpose
-
-def skip_conn(x, y, scope_name):
-    with tf.name_scope(scope_name):
-        x = tf.add(x, y)
-        return x
-
-def output(x, filters, ksize, strides=2, padding='same', activation='sigmoid', name='conv_transpose_output', scope_name='output'):
-    k_init = tf.random_normal_initializer()
-
-    with tf.name_scope(scope_name):
-        output = tf.layers.conv2d_transpose(x, filters=filters, kernel_size=ksize, strides=strides, padding=padding, activation=activation, kernel_initializer=k_init, name=name)
-
-        return output
-
-def dice_coeff(y_true, y_pred):
-    smooth = 0.1
+def dice_coeff(y_true, y_pred, num_classes=2, axis=[-1]):
+    smooth = 1e-5
     # Flatten
     y_true_f = tf.reshape(y_true, [-1])
     y_pred_f = tf.reshape(y_pred, [-1])
@@ -105,64 +66,40 @@ def dice_coeff(y_true, y_pred):
     return score
 
 def dice_loss(y_true, y_pred):
-    loss = 1 - dice_coeff(y_true, y_pred)
-    return loss
-    # y_true_f = tf.reshape(y_true, [-1])
-    # y_pred_f = tf.reshape(y_pred, [-1])
-    # numerator = 2 * tf.reduce_sum(y_true_f * y_pred_f)
-    # # some implementations don't square y_pred
-    # denominator = tf.reduce_sum(y_true_f + tf.square(y_pred_f))
-
-    # return numerator / (denominator + tf.keras.backend.epsilon())
+    with tf.name_scope('dice_loss'):
+        loss = 1 - dice_coeff(y_true, y_pred)
+        return loss
 
 def optimize(nn_last_layer, correct_label, learning_rate, num_classes=2):  
     # Reshape 4D tensors to 2D, each row represents a pixel, each column a class
-    logits = tf.reshape(nn_last_layer, (-1, num_classes), name="fcn_logits")
+    logits_reshaped = tf.reshape(nn_last_layer, (-1, num_classes), name="logits_reshaped")
     correct_label_reshaped = tf.reshape(correct_label, (-1, num_classes))
 
-    # Calculate distance from actual labels using cross entropy
-    cross_entropy = tf.compat.v1.nn.softmax_cross_entropy_with_logits_v2(logits=logits, labels=correct_label_reshaped)
-    # Take mean for total loss
-    loss_op = tf.reduce_mean(cross_entropy, name="fcn_loss")
+    with tf.name_scope('loss'):
+        # Calculate distance from actual labels using cross entropy
+        cross_entropy = tf.compat.v1.nn.softmax_cross_entropy_with_logits_v2(logits=logits_reshaped, labels=correct_label_reshaped)
+        # Take mean for total loss
+        loss_op = tf.compat.v1.reduce_mean(cross_entropy, name="fcn_loss")
 
-    tf.compat.v1.summary.histogram('loss', loss_op)
+        tf.compat.v1.summary.histogram('loss', loss_op)
 
-    bce_dice_loss = loss_op + dice_loss(correct_label, nn_last_layer)
+        bce_dice_loss = loss_op + dice_loss(correct_label, nn_last_layer)
+        # bce_dice_loss = tf.compat.v1.reduce_mean(bce_dice_loss, name='bce_dice_loss')
 
-    tf.compat.v1.summary.histogram('bce_dice_loss', bce_dice_loss)
+        tf.compat.v1.summary.histogram('bce_dice_loss', bce_dice_loss)
 
     # The model implements this operation to find the weights/parameters that would yield correct pixel labels
-    train_op = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate).minimize(bce_dice_loss, name="fcn_train_op")
+    optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate).minimize(bce_dice_loss, name="fcn_train_op")
 
-    # Accuracy
-    # Predict the value of each pixel (i.e. which pixel represents a background and which represents a human)
-    correct_pred = tf.equal(tf.argmax(logits, 1), tf.argmax(correct_label_reshaped, 1))
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name='accuracy')
+    with tf.name_scope('overall_accuracy'):
+        # Accuracy
+        # Predict the value of each pixel (i.e. which pixel represents a background and which represents a human)
+        correct_pred = tf.equal(tf.argmax(logits_reshaped, 1), tf.argmax(correct_label_reshaped, 1))
+        accuracy = tf.compat.v1.reduce_mean(tf.cast(correct_pred, tf.float32), name='accuracy')
 
-    tf.compat.v1.summary.histogram('accuracy', accuracy)
+        tf.compat.v1.summary.histogram('accuracy', accuracy)
 
-    return logits, train_op, loss_op, bce_dice_loss, accuracy
-
-def model(x, kp, is_training=True, num_classes=2):
-    fcn0 = conv2d_bn(x, 32, 3, keep_prob=kp, scope_name='conv0', is_dropout=True)
-
-    fcn1 = conv2d_bn(fcn0, 64, 3, keep_prob=kp, scope_name='conv1', is_dropout=True)
-
-    fcn2 = conv2d_bn(fcn1, 128, 3, keep_prob=kp, scope_name='conv2', is_dropout=True)
-
-    mid = conv2d_bn(fcn2, 128, 3, keep_prob=kp, scope_name='1x1conv', conv_strides=1, is_dropout=True)
-
-    fcn3 = conv_2d_transpose_bn(mid, 64, 3, keep_prob=kp, scope_name='conv_transpose0', is_dropout=True)
-
-    fcn3 = skip_conn(fcn3, fcn1, 'skip_conn0')
-
-    fcn4 = conv_2d_transpose_bn(fcn3, 32, 3, keep_prob=kp, scope_name='conv_transpose1', is_dropout=True)
-
-    fcn4 = skip_conn(fcn4, fcn0, 'skip_conn1')
-
-    op = output(fcn4, 1, 3)
-
-    return op
+    return logits_reshaped, optimizer, loss_op, bce_dice_loss, accuracy
 
 def train(sess, epochs, batch_size, model_output, train_op,
              cross_entropy_loss, dice_loss, accuracy, input_image,
@@ -188,51 +125,79 @@ def train(sess, epochs, batch_size, model_output, train_op,
             masks = truth.get('ann_{}'.format(dataset_idx))
 
             for batch_idx in range(0, img.shape[0] // batch_size):
-                if dataset_idx == total_datasets - 1 and batch_idx == 16:
+                if dataset_idx == total_datasets - 1 and batch_idx == 20:
                     batch_images = img[idx : img.shape[0]]
                     batch_mask = masks[idx : masks.shape[0]]
                 else:
                     batch_images = img[idx : idx+batch_size]
-                    batch_mask = masks[idx : idx+batch_size]        
+                    batch_mask = masks[idx : idx+batch_size]
 
-                loss, bce_dice_loss, _, acc, summary = sess.run([cross_entropy_loss, dice_loss, train_op, accuracy, merged],
-                feed_dict={input_image: batch_images, correct_label: batch_mask, keep_prob: kp})
+                X_train, X_val, y_train, y_val = train_test_split(batch_images, batch_mask, test_size=0.3)     
+
+                _, summary = sess.run([train_op, merged], feed_dict={input_image: X_train, correct_label: y_train, keep_prob: 0.7})
+                # loss, bce_dice_loss, _, acc, summary = sess.run([cross_entropy_loss, dice_loss, train_op, accuracy, merged],
+                # feed_dict={input_image: batch_images, correct_label: batch_mask, keep_prob: kp})
+
+                loss, bce_dice_loss = sess.run([cross_entropy_loss, dice_loss], feed_dict={input_image: X_train, correct_label: y_train, keep_prob: 1.0})
+                acc = sess.run(accuracy, feed_dict={input_image: X_val, correct_label: y_val, keep_prob: 1.0})
 
                 idx += batch_size
 
                 # if batch_idx % 2 == 0:
-                print("Epoch {:03d} ... Dataset {:01d}/{} ... ".format(epoch + 1, dataset_idx + 1, total_datasets), "Loss = {:.4f}".format(loss), " BCE Loss = {:.4f}".format(bce_dice_loss), " Accuracy = {:.4f}".format(acc))
+                print("Epoch {:03d} ... Dataset {:02d}/{} ... ".format(epoch + 1, dataset_idx + 1, total_datasets), "Loss = {:.4f}".format(loss), " Dice Loss = {:.4f}".format(bce_dice_loss), " Accuracy = {:.4f}".format(acc))
 
                 writer.add_summary(summary, epoch)
             idx = 0
 
+            if epoch % 10 == 0 or epoch == epochs - 1:
+                arr = np.empty((1, IMG_HEIGHT, IMG_WIDTH, 1))
+                arr[0] = img[50]
+                mask = sess.run(model_output, feed_dict={input_image: arr})
+                mask = mask[0]
+                
+                m = (((mask - mask.min()) * 255) / (mask.max() - mask.min())).astype(np.uint8)
+
+                cv2.imwrite('./samples/mask_{}.jpg'.format(epoch), m)
+
+                if not os.path.isfile('./samples/original.jpg'):
+                    image = (((arr[0] - arr[0].min()) * 255) / (arr[0].max() - arr[0].min())).astype(np.uint8)
+                    cv2.imwrite('./samples/original.jpg', image)
+
+                if not os.path.isfile('./samples/mask_org.jpg'):
+                    m = (((masks[50] - masks[50].min()) * 255) / (masks[50].max() - masks[50].min())).astype(np.uint8)
+                    cv2.imwrite('./samples/mask_org.jpg', m)
+
 
 def run():
+    tf.compat.v1.reset_default_graph()    
+
     epoch = 100
-    batch_size = 16
+    batch_size = 32
     learning_rate = 1e-3
     kp = 0.7
 
-    attempt_no = 6
+    attempt_no = 4
+
+    X = neural_net_input()
+    Y = neural_net_output()
+    keep_prob = neural_net_keep_prob()
+
+    model_output = fcn.fcn_model(X, keep_prob)
+    # logits = tf.compat.v1.identity(logits, 'logits')
+
+    # Returns the output logits, training operation and cost operation to be used
+    # - logits_reshaped: each row represents a pixel, each column a class
+    # - train_op: function used to get the right parameters to the model to correctly label the pixels
+    # - cross_entropy_loss: cross entropy loss
+    # - dice_loss: function outputting the cost which we are minimizing, lower cost should yield higher accuracy
+    logits_reshaped, train_op, cross_entropy_loss, dice_loss, accuracy = optimize(model_output, Y, learning_rate)
   
-    with tf.Session() as sess:        
-        X = neural_net_input()
-        Y = neural_net_output()
-        keep_prob = neural_net_keep_prob()
-
-        model_output = model(X, kp)
-
-        writer = tf.compat.v1.summary.FileWriter('./logs/{}/'.format(attempt_no), sess.graph)
-
-        # Returns the output logits, training operation and cost operation to be used
-        # - logits: each row represents a pixel, each column a class
-        # - train_op: function used to get the right parameters to the model to correctly label the pixels
-        # - cross_entropy_loss: function outputting the cost which we are minimizing, lower cost should yield higher accuracy
-        logits, train_op, cross_entropy_loss, dice_loss, accuracy = optimize(model_output, Y, learning_rate)
-
+    with tf.compat.v1.Session() as sess:        
         # Initialize all variables
         sess.run(tf.compat.v1.global_variables_initializer())
-        sess.run(tf.compat.v1.local_variables_initializer())                
+        sess.run(tf.compat.v1.local_variables_initializer())        
+
+        writer = tf.compat.v1.summary.FileWriter('./logs/{}/'.format(attempt_no), sess.graph)        
 
         print("Model build successful, starting training")
 
