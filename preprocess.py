@@ -20,6 +20,8 @@ TF_RECORD_MASKS = './masks.tfrecord'
 H5_IMAGES = './images.h5'
 H5_MASKS = './masks.h5'
 
+LABELS = './labels-train'
+
 BATCH_SIZE = 512
 
 use_h5 = True
@@ -46,7 +48,7 @@ def extract_annotations(data_record):
 
     return ann
 
-def bytes_feature(value):    
+def bytes_feature(value):
     """
         Returns a bytes_list from a string / byte.
     """
@@ -97,8 +99,8 @@ if __name__ == '__main__':
                         else:
                             mask = np.zeros((img.shape[0], img.shape[1]))
 
-                        img = cv2.resize(img, IMG_SIZE) / 255
-                        mask = cv2.resize(mask, IMG_SIZE) / 255
+                        img = cv2.resize(img, IMG_SIZE) * (1.0 / 255.0)
+                        mask = cv2.resize(mask, IMG_SIZE) * (1.0 / 255.0)
 
                         img_raw.append(img)
                         truth_raw.append(mask)
@@ -122,7 +124,7 @@ if __name__ == '__main__':
                             idx = 0
 
                         idx += 1
-    else:        
+    else:
         if not os.path.isfile(TF_RECORD_IMAGES) and not os.path.isfile(TF_RECORD_MASKS):            
             with tf.python_io.TFRecordWriter(TF_RECORD_IMAGES) as img_writer:
                 with tf.python_io.TFRecordWriter(TF_RECORD_MASKS) as ann_writer:
