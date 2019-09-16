@@ -11,6 +11,7 @@ dicom-images-test/*
 labels-train/*
 tf_logs/*
 tf_model/*
+full_model/*
 logs/*
 fcn_10/*
 fcn_100/*
