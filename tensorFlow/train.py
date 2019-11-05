@@ -4,7 +4,6 @@ import os
 from tqdm import tqdm
 import pydicom
 import tensorflow as tf
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from mask_functions import *
 import pandas as pd
 import h5py
@@ -70,7 +69,10 @@ class TfTrain:
             tf.compat.v1.summary.histogram('bce_dice_loss', bce_dice_loss)
 
         # The model implements this operation to find the weights/parameters that would yield correct pixel labels
-        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate).minimize(bce_dice_loss, name="fcn_train_op")
+        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=learning_rate)
+        gradients = optimizer.compute_gradients(bce_dice_loss)
+        capped_gradients = [(tf.compat.v1.clip_by_value(grad, -0.9, 0.9), var) for grad, var in gradients if grad is not None]
+        train_op = optimizer.apply_gradients(capped_gradients)
 
         with tf.name_scope('overall_accuracy'):
             # Accuracy
@@ -80,7 +82,7 @@ class TfTrain:
 
             tf.compat.v1.summary.histogram('accuracy', accuracy)
 
-        return logits_reshaped, optimizer, loss_op, bce_dice_loss, accuracy
+        return logits_reshaped, train_op, loss_op, bce_dice_loss, accuracy
 
     def train(self, sess, epochs, batch_size, model_output, train_op,
                 cross_entropy_loss, dice_loss, accuracy, input_image,
@@ -98,7 +100,6 @@ class TfTrain:
 
         total_datasets = len(images.keys())
 
-        datagen = ImageDataGenerator(rescale=1.0/255.0)
         X_train = []
         Y_labels = []
 
@@ -161,7 +162,7 @@ class TfTrain:
         learning_rate = 1e-3
         kp = 0.7
 
-        attempt_no = 2
+        attempt_no = 3
 
         X = self.neural_net_input()
         Y = self.neural_net_output()

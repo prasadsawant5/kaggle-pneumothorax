@@ -4,7 +4,7 @@ class MyModel:
     def __init__(self):
         pass
     
-    def fcn_conv2d_bn(self, x, filters, conv_ksize, keep_prob, scope_name, conv_strides=2, pool_ksize=2, pool_strides=2, padding='same', activation='relu', is_batch_norm=True, is_training=True, is_dropout=False):
+    def fcn_conv2d_bn(self, x, filters, conv_ksize, keep_prob, scope_name, conv_strides=2, pool_ksize=2, pool_strides=2, padding='same', activation=None, is_batch_norm=True, is_training=True, is_dropout=False):
         k_init = tf.random_normal_initializer()
 
         with tf.name_scope(scope_name):
@@ -13,12 +13,14 @@ class MyModel:
             if is_batch_norm:
                 conv = tf.layers.batch_normalization(conv, training=is_training)
 
+            conv = tf.compat.v1.nn.relu(conv)
+
             if is_dropout:
                 conv = tf.nn.dropout(conv, keep_prob=keep_prob)
 
             return conv
 
-    def fcn_conv_2d_transpose_bn(self, x, filters, ksize, keep_prob, scope_name, strides=2, padding='same', activation='relu', is_batch_norm=True, is_training=True, is_dropout=False):
+    def fcn_conv_2d_transpose_bn(self, x, filters, ksize, keep_prob, scope_name, strides=2, padding='same', activation=None, is_batch_norm=True, is_training=True, is_dropout=False):
         k_init = tf.random_normal_initializer()
 
         with tf.name_scope(scope_name):
@@ -26,6 +28,8 @@ class MyModel:
 
             if is_batch_norm:
                 conv_transpose = tf.layers.batch_normalization(conv_transpose, training=is_training)
+
+            conv_transpose = tf.compat.v1.nn.relu(conv_transpose)
 
             if is_dropout:
                 conv_transpose = tf.nn.dropout(conv_transpose, keep_prob)

@@ -55,6 +55,6 @@ The output layer performs only a transpose convolution operation with 1 filter, 
 ### Training
 To train the model, simply run,
 ```
-python train.py
+python run.py -f tf
 ```
-This script will create the network and train it. Once training is completed, it will save the model in `fcn_<epochs>` directory where `<epochs>` is the number of epochs specified in `train.py`. It also creates a `logs` directory which holds all `tensorboard` related files.
+Notice the argument `-f`. This argument specifies the frameowrk to be used for training. At this point, only *TensorFlow* is supported for training. *MxNet* will be added soon. This script will create the network and train it. Once training is completed, it will save the model in `tf_model` directory. It also creates a `tf_logs` directory which holds all `tensorboard` related files.

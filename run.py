@@ -1,6 +1,7 @@
 import argparse
 import os
 from tensorFlow.train import TfTrain
+from mxNet.train import MxNetTrain
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
@@ -11,3 +12,6 @@ if __name__ == '__main__':
     if args['framework'] == 'tf':
         tfTrain = TfTrain()
         tfTrain.run()
+    elif args['framework'] == 'mxnet':
+        mxnetTrain = MxNetTrain()
+        mxnetTrain.run()
